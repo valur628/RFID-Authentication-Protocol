@@ -1,0 +1,135 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+role role_reader (TAG, READER, SERVER : agent,
+	     Hash : hash_func,
+	     K : symmetric_key,
+	     SND, RCV : channel(dy))
+played_by READER def=
+
+  local  State : nat,
+         Rn : text,
+         Rnt : text,
+         Tn : text,
+         IDt : text,
+         IDs : text,
+         IDst : text,
+         V : text,
+         M3 : text,
+         Q : message
+  init State:=0
+
+  transition     
+    1. State=0
+           /\ RCV(start) =|>
+       State':=1
+           /\ Rn':=new()
+           /\ Q':=new()
+           /\ SND(Hash(Q').xor(Rn', K))
+    2. State=2
+           /\ RCV({IDt'.Rn'.Tn'}_K) =|>
+       State':=3
+           /\ witness(TAG, READER, auth_1, Rn')
+           /\ SND(IDt')
+    3. State=4
+           /\ RCV(Hash(IDst')) =|>
+       State':=5
+           /\ M3':=xor(xor(Hash(IDst'), Rn), Tn)
+           /\ K':=xor(K, Tn)
+           /\ SND(M3')
+end role
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+role role_tag(TAG, READER, SERVER : agent,
+	     Hash : hash_func,
+	     K : symmetric_key,
+	     SND, RCV : channel(dy),
+	     IDt : text)
+played_by TAG def=
+
+  local  State : nat,
+         Rn : text,
+         Tn : text,
+         Q : message,
+         M3 : text,
+         M3t : text
+  init State:=1
+
+
+  transition 
+    1. State=1
+           /\ RCV(Hash(Q').xor(Rn', K)) =|>
+       State':=2
+           /\ Tn':=new()
+           /\ SND({IDt.Rn'.Tn'}_K)
+    2. State=5
+           /\ RCV(M3') =|>
+       State':=6
+           /\ M3t':=xor(xor(Hash(IDt), Rn), Tn)
+           %/\ M3'=M3t'
+           /\ witness(READER, TAG, auth_2, M3t')
+           /\ K':=xor(K, Tn)
+end role
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+role role_server(TAG, READER, SERVER : agent,
+	     Hash : hash_func,
+	     SND, RCV : channel(dy),
+	     IDs : text)
+played_by SERVER def=
+
+  local  State : nat,
+         IDt : text,
+         IDst : text
+  init State:=3
+
+  transition 
+    1. State=3
+           /\ RCV(IDt') =|>
+       State':=4
+           /\ IDst':=IDs
+           %/\ IDt'=IDs
+           /\ SND(Hash(IDst'))
+end role
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+role session(TAG, READER, SERVER : agent,
+	     Hash : hash_func,
+	     K : symmetric_key,
+	     IDt, IDs : text)
+def=
+	local
+		SND3,RCV3,SND2,RCV2,SND1,RCV1:channel(dy)
+	composition
+		role_reader(TAG, READER, SERVER, Hash, K, SND3, RCV3)
+		/\ role_tag(TAG, READER, SERVER, Hash, K, SND2, RCV2, IDt)
+		/\ role_server(TAG, READER, SERVER, Hash, SND1, RCV1, IDs)
+end role
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+role environment()
+def=
+	const
+		t, r, s, tt, rr, ss : agent,
+		f_hash : hash_func,
+		k : symmetric_key,
+                id_t, id_s:text,
+                auth_1, auth_2:protocol_id
+	intruder_knowledge = {t, r, s, k, tt, rr, ss}
+	composition
+		   session(t, r, s, f_hash, k, id_t, id_s)
+		%/\ session(tt, rr, ss, f_hash, k, id_t, id_s)
+end role
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+goal
+        authentication_on auth_1
+        authentication_on auth_2
+end goal
+
+environment()
